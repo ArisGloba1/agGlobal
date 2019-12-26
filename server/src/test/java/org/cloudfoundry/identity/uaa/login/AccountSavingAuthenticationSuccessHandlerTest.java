@@ -27,6 +27,7 @@ import java.util.Date;
 
 import static java.util.Arrays.asList;
 import static junit.framework.TestCase.assertEquals;
+import static junit.framework.TestCase.assertTrue;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -93,7 +94,7 @@ public class AccountSavingAuthenticationSuccessHandlerTest {
                 "user-origin",
                 null,
                 true,
-                IdentityZone.getUaa().getId(),
+                IdentityZone.getUaaZoneId(),
                 "salt",
                 yesterday
         );
@@ -118,7 +119,7 @@ public class AccountSavingAuthenticationSuccessHandlerTest {
         expectedCookieValue.setOrigin(user.getOrigin());
 
         assertEquals(URLEncoder.encode(JsonUtils.writeValueAsString(expectedCookieValue)), cookieValue);
-        assertEquals(true, accountOptionCookie.isHttpOnly());
+        assertTrue(accountOptionCookie.isHttpOnly());
         assertEquals(365*24*60*60, accountOptionCookie.getMaxAge());
         assertEquals("/login", accountOptionCookie.getPath());
         Assert.assertEquals(secure, accountOptionCookie.getSecure());
@@ -151,7 +152,7 @@ public class AccountSavingAuthenticationSuccessHandlerTest {
                 "user-origin",
                 null,
                 true,
-                IdentityZone.getUaa().getId(),
+                IdentityZone.getUaaZoneId(),
                 "salt",
                 yesterday
         );

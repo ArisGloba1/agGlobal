@@ -63,7 +63,7 @@ public class SessionResetFilterTests {
     UaaUser userWithNoPasswordModification;
 
     @Before
-    public void setUpFilter() throws Exception {
+    public void setUpFilter() {
 
         yesterday = new Date(System.currentTimeMillis()-(1000*60*60*24));
 
@@ -95,7 +95,7 @@ public class SessionResetFilterTests {
             OriginKeys.UAA,
             null,
             true,
-            IdentityZone.getUaa().getId(),
+            IdentityZone.getUaaZoneId(),
             "salt",
             yesterday
         );
@@ -113,7 +113,7 @@ public class SessionResetFilterTests {
             OriginKeys.UAA,
             null,
             true,
-            IdentityZone.getUaa().getId(),
+            IdentityZone.getUaaZoneId(),
             "salt",
             null
         );

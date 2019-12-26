@@ -12,8 +12,8 @@
  *******************************************************************************/
 package org.cloudfoundry.identity.uaa.provider;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.cloudfoundry.identity.uaa.audit.event.SystemDeletable;
 import org.cloudfoundry.identity.uaa.constants.OriginKeys;
 import org.cloudfoundry.identity.uaa.util.JsonUtils;
@@ -21,12 +21,10 @@ import org.cloudfoundry.identity.uaa.util.ObjectUtils;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -36,7 +34,7 @@ import java.util.UUID;
 
 public class JdbcIdentityProviderProvisioning implements IdentityProviderProvisioning, SystemDeletable {
 
-    private static Log logger = LogFactory.getLog(JdbcIdentityProviderProvisioning.class);
+    private static Logger logger = LoggerFactory.getLogger(JdbcIdentityProviderProvisioning.class);
 
     public static final String ID_PROVIDER_FIELDS = "id,version,created,lastmodified,name,origin_key,type,config,identity_zone_id,active";
 
@@ -58,6 +56,8 @@ public class JdbcIdentityProviderProvisioning implements IdentityProviderProvisi
 
     public static final String IDENTITY_PROVIDER_BY_ORIGIN_QUERY = "select " + ID_PROVIDER_FIELDS + " from identity_provider " + "where origin_key=? and identity_zone_id=? ";
 
+    public static final String IDENTITY_PROVIDER_BY_ORIGIN_QUERY_ACTIVE =  IDENTITY_PROVIDER_BY_ORIGIN_QUERY + " and active = ? ";
+
     protected final JdbcTemplate jdbcTemplate;
 
 
@@ -70,8 +70,7 @@ public class JdbcIdentityProviderProvisioning implements IdentityProviderProvisi
 
     @Override
     public IdentityProvider retrieve(String id, String zoneId) {
-        IdentityProvider identityProvider = jdbcTemplate.queryForObject(IDENTITY_PROVIDER_BY_ID_QUERY, mapper, id, zoneId);
-        return identityProvider;
+        return jdbcTemplate.queryForObject(IDENTITY_PROVIDER_BY_ID_QUERY, mapper, id, zoneId);
     }
 
     @Override
@@ -90,8 +89,12 @@ public class JdbcIdentityProviderProvisioning implements IdentityProviderProvisi
 
     @Override
     public IdentityProvider retrieveByOrigin(String origin, String zoneId) {
-        IdentityProvider identityProvider = jdbcTemplate.queryForObject(IDENTITY_PROVIDER_BY_ORIGIN_QUERY, mapper, origin, zoneId);
-        return identityProvider;
+        return jdbcTemplate.queryForObject(IDENTITY_PROVIDER_BY_ORIGIN_QUERY_ACTIVE, mapper, origin, zoneId, true);
+    }
+
+    @Override
+    public IdentityProvider retrieveByOriginIgnoreActiveFlag(String origin, String zoneId) {
+        return jdbcTemplate.queryForObject(IDENTITY_PROVIDER_BY_ORIGIN_QUERY, mapper, origin, zoneId);
     }
 
     @Override
@@ -99,21 +102,18 @@ public class JdbcIdentityProviderProvisioning implements IdentityProviderProvisi
         validate(identityProvider);
         final String id = UUID.randomUUID().toString();
         try {
-            jdbcTemplate.update(CREATE_IDENTITY_PROVIDER_SQL, new PreparedStatementSetter() {
-                @Override
-                public void setValues(PreparedStatement ps) throws SQLException {
-                int pos = 1;
-                ps.setString(pos++, id);
-                ps.setInt(pos++, identityProvider.getVersion());
-                ps.setTimestamp(pos++, new Timestamp(System.currentTimeMillis()));
-                ps.setTimestamp(pos++, new Timestamp(System.currentTimeMillis()));
-                ps.setString(pos++, identityProvider.getName());
-                ps.setString(pos++, identityProvider.getOriginKey());
-                ps.setString(pos++, identityProvider.getType());
-                ps.setString(pos++, JsonUtils.writeValueAsString(identityProvider.getConfig()));
-                ps.setString(pos++, zoneId);
-                ps.setBoolean(pos++, identityProvider.isActive());
-                }
+            jdbcTemplate.update(CREATE_IDENTITY_PROVIDER_SQL, ps -> {
+            int pos = 1;
+            ps.setString(pos++, id);
+            ps.setInt(pos++, identityProvider.getVersion());
+            ps.setTimestamp(pos++, new Timestamp(System.currentTimeMillis()));
+            ps.setTimestamp(pos++, new Timestamp(System.currentTimeMillis()));
+            ps.setString(pos++, identityProvider.getName());
+            ps.setString(pos++, identityProvider.getOriginKey());
+            ps.setString(pos++, identityProvider.getType());
+            ps.setString(pos++, JsonUtils.writeValueAsString(identityProvider.getConfig()));
+            ps.setString(pos++, zoneId);
+            ps.setBoolean(pos++, identityProvider.isActive());
             });
         } catch (DuplicateKeyException e) {
             throw new IdpAlreadyExistsException(e.getMostSpecificCause().getMessage());
@@ -124,19 +124,16 @@ public class JdbcIdentityProviderProvisioning implements IdentityProviderProvisi
     @Override
     public IdentityProvider update(final IdentityProvider identityProvider, String zoneId) {
         validate(identityProvider);
-        jdbcTemplate.update(UPDATE_IDENTITY_PROVIDER_SQL, new PreparedStatementSetter() {
-            @Override
-            public void setValues(PreparedStatement ps) throws SQLException {
-            int pos = 1;
-            ps.setInt(pos++, identityProvider.getVersion() + 1);
-            ps.setTimestamp(pos++, new Timestamp(new Date().getTime()));
-            ps.setString(pos++, identityProvider.getName());
-            ps.setString(pos++, identityProvider.getType());
-            ps.setString(pos++, JsonUtils.writeValueAsString(identityProvider.getConfig()));
-            ps.setBoolean(pos++, identityProvider.isActive());
-            ps.setString(pos++, identityProvider.getId().trim());
-            ps.setString(pos++, zoneId);
-            }
+        jdbcTemplate.update(UPDATE_IDENTITY_PROVIDER_SQL, ps -> {
+        int pos = 1;
+        ps.setInt(pos++, identityProvider.getVersion() + 1);
+        ps.setTimestamp(pos++, new Timestamp(new Date().getTime()));
+        ps.setString(pos++, identityProvider.getName());
+        ps.setString(pos++, identityProvider.getType());
+        ps.setString(pos++, JsonUtils.writeValueAsString(identityProvider.getConfig()));
+        ps.setBoolean(pos++, identityProvider.isActive());
+        ps.setString(pos++, identityProvider.getId().trim());
+        ps.setString(pos++, zoneId);
         });
         return retrieve(identityProvider.getId(), zoneId);
     }
@@ -168,7 +165,7 @@ public class JdbcIdentityProviderProvisioning implements IdentityProviderProvisi
     }
 
     @Override
-    public Log getLogger() {
+    public Logger getLogger() {
         return logger;
     }
 

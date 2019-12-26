@@ -2,6 +2,7 @@ package org.cloudfoundry.identity.uaa.oauth.token;
 
 import org.cloudfoundry.identity.uaa.oauth.KeyInfoService;
 import org.cloudfoundry.identity.uaa.oauth.TokenKeyEndpoint;
+import org.cloudfoundry.identity.uaa.extensions.PollutionPreventionExtension;
 import org.cloudfoundry.identity.uaa.util.JsonUtils;
 import org.cloudfoundry.identity.uaa.util.MapCollector;
 import org.cloudfoundry.identity.uaa.zone.IdentityZone;
@@ -10,9 +11,10 @@ import org.cloudfoundry.identity.uaa.zone.IdentityZoneHolder;
 import org.cloudfoundry.identity.uaa.zone.IdentityZoneProvisioning;
 import org.cloudfoundry.identity.uaa.zone.MultitenancyFixture;
 import org.cloudfoundry.identity.uaa.zone.TokenPolicy;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -38,10 +40,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class TokenKeyEndpointTests {
+@ExtendWith(PollutionPreventionExtension.class)
+class TokenKeyEndpointTests {
 
     private TokenKeyEndpoint tokenKeyEndpoint = new TokenKeyEndpoint(new KeyInfoService("https://localhost.uaa"));
     private Authentication validUaaResource;
@@ -73,18 +77,18 @@ public class TokenKeyEndpointTests {
       "SkbkWTex/hl+l0wdNErz/yBxP8esbPukOUqks/if\n" +
       "-----END RSA PRIVATE KEY-----";
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeEach
+    void setUp() {
         validUaaResource = new UsernamePasswordAuthenticationToken("client_id", null, Collections.singleton(new SimpleGrantedAuthority("uaa.resource")));
     }
 
-    @After
-    public void cleanUp() {
+    @AfterEach
+    void cleanUp() {
         IdentityZoneHolder.clear();
     }
 
     @Test
-    public void sharedSecretIsReturnedFromTokenKeyEndpoint() {
+    void sharedSecretIsReturnedFromTokenKeyEndpoint() {
         configureKeysForDefaultZone(Collections.singletonMap("someKeyId", "someKey"));
         VerificationKeyResponse response = tokenKeyEndpoint.getKey(validUaaResource);
         assertEquals("HS256", response.getAlgorithm());
@@ -94,17 +98,17 @@ public class TokenKeyEndpointTests {
         assertEquals("sig", response.getUse().name());
     }
 
-    @Test(expected = AccessDeniedException.class)
-    public void sharedSecretCannotBeAnonymouslyRetrievedFromTokenKeyEndpoint() {
+    @Test
+    void sharedSecretCannotBeAnonymouslyRetrievedFromTokenKeyEndpoint() {
         configureKeysForDefaultZone(Collections.singletonMap("anotherKeyId", "someKey"));
-        assertEquals("{alg=HMACSHA256, value=someKey}",
-          tokenKeyEndpoint.getKey(
-            new AnonymousAuthenticationToken("anon", "anonymousUser", AuthorityUtils
-              .createAuthorityList("ROLE_ANONYMOUS"))).toString());
+
+        assertThrows(AccessDeniedException.class, () -> tokenKeyEndpoint.getKey(
+                new AnonymousAuthenticationToken("anon", "anonymousUser", AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS"))
+        ));
     }
 
     @Test
-    public void responseIsBackwardCompatibleWithMap() {
+    void responseIsBackwardCompatibleWithMap() {
         configureKeysForDefaultZone(Collections.singletonMap("literallyAnything", "someKey"));
         VerificationKeyResponse response = tokenKeyEndpoint.getKey(validUaaResource);
 
@@ -118,7 +122,7 @@ public class TokenKeyEndpointTests {
     }
 
     @Test
-    public void keyIsReturnedForZone() {
+    void keyIsReturnedForZone() {
         createAndSetTestZoneWithKeys(Collections.singletonMap("key1", SIGNING_KEY_1));
 
         VerificationKeyResponse response = tokenKeyEndpoint.getKey(mock(Principal.class));
@@ -135,7 +139,7 @@ public class TokenKeyEndpointTests {
     }
 
     @Test
-    public void defaultZoneKeyIsReturned_ForZoneWithNoKeys() {
+    void defaultZoneKeyIsReturned_ForZoneWithNoKeys() {
         configureKeysForDefaultZone(Collections.singletonMap("someKeyId", "someKey"));
         createAndSetTestZoneWithKeys(null);
 
@@ -149,7 +153,7 @@ public class TokenKeyEndpointTests {
     }
 
     @Test
-    public void listResponseContainsAllPublicKeysWhenUnauthenticated() {
+    void listResponseContainsAllPublicKeysWhenUnauthenticated() {
         Map<String, String> keysForUaaZone = new HashMap<>();
         keysForUaaZone.put("RsaKey1", SIGNING_KEY_1);
         keysForUaaZone.put("thisIsASymmetricKeyThatShouldNotShowUp", "ItHasSomeTextThatIsNotPEM");
@@ -162,7 +166,7 @@ public class TokenKeyEndpointTests {
         List<String> keyIds = keys.stream().map(VerificationKeyResponse::getId).collect(Collectors.toList());
         assertThat(keyIds, containsInAnyOrder("RsaKey1", "RsaKey2", "RsaKey3"));
 
-        HashMap<String, VerificationKeyResponse> keysMap = keys.stream().collect(new MapCollector<>(k -> k.getId(), k -> k));
+        HashMap<String, VerificationKeyResponse> keysMap = keys.stream().collect(new MapCollector<>(VerificationKeyResponse::getId, k -> k));
         VerificationKeyResponse key1Response = keysMap.get("RsaKey1");
         VerificationKeyResponse key2Response = keysMap.get("RsaKey2");
         VerificationKeyResponse key3Response = keysMap.get("RsaKey3");
@@ -190,7 +194,7 @@ public class TokenKeyEndpointTests {
     }
 
     @Test
-    public void listResponseContainsAllKeysWhenAuthenticated() {
+    void listResponseContainsAllKeysWhenAuthenticated() {
         Map<String, String> keysForUaaZone = new HashMap<>();
         keysForUaaZone.put("RsaKey1", SIGNING_KEY_1);
         keysForUaaZone.put("RsaKey2", SIGNING_KEY_2);
@@ -208,7 +212,7 @@ public class TokenKeyEndpointTests {
     }
 
     @Test
-    public void tokenKeyEndpoint_ReturnsAllKeysForZone() {
+    void tokenKeyEndpoint_ReturnsAllKeysForZone() {
         Map<String, String> keys = new HashMap<>();
         keys.put("key1", SIGNING_KEY_1);
         keys.put("key2", SIGNING_KEY_2);
@@ -221,7 +225,7 @@ public class TokenKeyEndpointTests {
     }
 
     @Test
-    public void responseHeaderIncludesEtag() {
+    void responseHeaderIncludesEtag() {
         createAndSetTestZoneWithKeys(Collections.singletonMap("key1", SIGNING_KEY_1));
 
         ResponseEntity<VerificationKeyResponse> keyResponse = tokenKeyEndpoint.getKey(mock(Principal.class), "NaN");
@@ -234,7 +238,7 @@ public class TokenKeyEndpointTests {
     }
 
     @Test
-    public void returns304IfUnmodified() {
+    void returns304IfUnmodified() {
         IdentityZone zone = createAndSetTestZoneWithKeys(null);
 
         String lastModified = String.valueOf(zone.getLastModified().getTime());

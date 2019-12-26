@@ -73,7 +73,7 @@ public class MfaProviderTest {
 
         MfaProvider<GoogleMfaProviderConfig> provider = JsonUtils.readValue(json, MfaProvider.class);
 
-        assertEquals(null, provider.getType());
+        assertNull(provider.getType());
         assertEquals("UAA Provider", provider.getName());
         assertNull(provider.getConfig());
     }
@@ -87,7 +87,7 @@ public class MfaProviderTest {
         MfaProvider<GoogleMfaProviderConfig> res = new MfaProvider();
         res.setName(new RandomValueStringGenerator(5).generate())
                 .setConfig(createValidGoogleMfaConfig())
-                .setIdentityZoneId(IdentityZone.getUaa().getId())
+                .setIdentityZoneId(IdentityZone.getUaaZoneId())
                 .setType(MfaProvider.MfaProviderType.GOOGLE_AUTHENTICATOR);
         return res;
     }

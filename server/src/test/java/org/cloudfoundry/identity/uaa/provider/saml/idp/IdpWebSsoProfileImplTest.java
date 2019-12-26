@@ -7,16 +7,8 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.opensaml.common.SAMLException;
-import org.opensaml.saml2.core.Assertion;
-import org.opensaml.saml2.core.Attribute;
-import org.opensaml.saml2.core.AuthnRequest;
-import org.opensaml.saml2.core.NameIDType;
-import org.opensaml.saml2.core.Response;
-import org.opensaml.saml2.core.Subject;
-import org.opensaml.saml2.core.SubjectConfirmation;
-import org.opensaml.saml2.core.SubjectConfirmationData;
+import org.opensaml.saml2.core.*;
 import org.opensaml.saml2.metadata.provider.MetadataProviderException;
-import org.opensaml.ws.message.encoder.MessageEncodingException;
 import org.opensaml.xml.ConfigurationException;
 import org.opensaml.xml.XMLObject;
 import org.opensaml.xml.io.MarshallingException;
@@ -26,34 +18,29 @@ import org.opensaml.xml.signature.SignatureException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.saml.context.SAMLMessageContext;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
+import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 public class IdpWebSsoProfileImplTest {
 
-    private final SamlTestUtils samlTestUtils = new SamlTestUtils();
-    private JdbcSamlServiceProviderProvisioning samlServiceProviderProvisioning = mock(JdbcSamlServiceProviderProvisioning.class);
-    private JdbcScimUserProvisioning scimUserProvisioning = mock(JdbcScimUserProvisioning.class);
+    private SamlTestUtils samlTestUtils;
+    private JdbcSamlServiceProviderProvisioning samlServiceProviderProvisioning;
+    private JdbcScimUserProvisioning scimUserProvisioning;
     private IdpWebSsoProfileImpl profile;
     private ScimUser user;
     private SamlServiceProvider samlServiceProvider;
 
     @Before
     public void setup() throws ConfigurationException {
+        samlTestUtils = new SamlTestUtils();
+        samlServiceProviderProvisioning = mock(JdbcSamlServiceProviderProvisioning.class);
+        scimUserProvisioning = mock(JdbcScimUserProvisioning.class);
         samlTestUtils.initialize();
 
         profile = new IdpWebSsoProfileImpl();
@@ -64,7 +51,7 @@ public class IdpWebSsoProfileImplTest {
         config.setAttributeMappings(new HashMap<>());
         samlServiceProvider.setConfig(config);
 
-        when(scimUserProvisioning.retrieve(anyString(), anyString())).thenReturn(user);
+        when(scimUserProvisioning.retrieve(any(), any())).thenReturn(user);
         when(samlServiceProviderProvisioning.retrieveByEntityId(any(), any())).thenReturn(samlServiceProvider);
         profile.setScimUserProvisioning(scimUserProvisioning);
         profile.setSamlServiceProviderProvisioning(samlServiceProviderProvisioning);
@@ -96,7 +83,7 @@ public class IdpWebSsoProfileImplTest {
     }
 
     @Test
-    public void testBuildResponseForSamlRequestWithUnspecifiedNameID() throws MessageEncodingException, SAMLException,
+    public void testBuildResponseForSamlRequestWithUnspecifiedNameID() throws SAMLException,
             MetadataProviderException, SecurityException, MarshallingException, SignatureException {
         String authenticationId = UUID.randomUUID().toString();
         Authentication authentication = samlTestUtils.mockUaaAuthentication(authenticationId);
@@ -122,7 +109,7 @@ public class IdpWebSsoProfileImplTest {
     }
 
     @Test
-    public void testBuildResponseForSamlRequestWithEmailAddressNameID() throws MessageEncodingException, SAMLException,
+    public void testBuildResponseForSamlRequestWithEmailAddressNameID() throws SAMLException,
             MetadataProviderException, SecurityException, MarshallingException, SignatureException {
         String authenticationId = UUID.randomUUID().toString();
         Authentication authentication = samlTestUtils.mockUaaAuthentication(authenticationId);
@@ -148,7 +135,7 @@ public class IdpWebSsoProfileImplTest {
     }
 
     @Test
-    public void testBuildResponse() throws MessageEncodingException, SAMLException, MetadataProviderException,
+    public void testBuildResponse() throws SAMLException, MetadataProviderException,
             SecurityException, MarshallingException, SignatureException {
         String authenticationId = UUID.randomUUID().toString();
         Authentication authentication = samlTestUtils.mockUaaAuthentication(authenticationId);
@@ -276,7 +263,7 @@ public class IdpWebSsoProfileImplTest {
     }
 
     @Test
-    public void testBuildResponseWithSignedAssertion() throws MessageEncodingException, SAMLException,
+    public void testBuildResponseWithSignedAssertion() throws SAMLException,
             MetadataProviderException, SecurityException, MarshallingException, SignatureException {
         String authenticationId = UUID.randomUUID().toString();
         Authentication authentication = samlTestUtils.mockUaaAuthentication(authenticationId);

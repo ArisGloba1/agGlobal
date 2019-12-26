@@ -25,8 +25,8 @@ import org.cloudfoundry.identity.uaa.user.UaaUser;
 import org.cloudfoundry.identity.uaa.util.ObjectUtils;
 import org.cloudfoundry.identity.uaa.zone.IdentityZoneHolder;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -46,7 +46,7 @@ import static java.util.Collections.EMPTY_LIST;
 
 public class LdapLoginAuthenticationManager extends ExternalLoginAuthenticationManager {
 
-    protected static Log logger = LogFactory.getLog(LdapLoginAuthenticationManager.class);
+    protected static Logger logger = LoggerFactory.getLogger(LdapLoginAuthenticationManager.class);
 
     public LdapLoginAuthenticationManager(IdentityProviderProvisioning providerProvisioning) {
         super(providerProvisioning);
@@ -141,7 +141,7 @@ public class LdapLoginAuthenticationManager extends ExternalLoginAuthenticationM
                 result = ldapIdentityProviderDefinition.isAutoAddGroups();
             }
         }
-        return result!=null ? result.booleanValue() : true;
+        return result == null || result;
     }
 
     @Override
@@ -154,6 +154,6 @@ public class LdapLoginAuthenticationManager extends ExternalLoginAuthenticationM
                 result = ldapIdentityProviderDefinition.isAddShadowUserOnLogin();
             }
         }
-        return result!=null ? result.booleanValue() : true;
+        return result!=null ? result : true;
     }
 }

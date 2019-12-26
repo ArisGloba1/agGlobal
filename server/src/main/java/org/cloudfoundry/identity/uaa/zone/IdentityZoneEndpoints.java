@@ -52,7 +52,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.validation.Valid;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
@@ -110,7 +109,7 @@ public class IdentityZoneEndpoints implements ApplicationEventPublisherAware {
 
     @RequestMapping(value = "{id}", method = GET)
     public IdentityZone getIdentityZone(@PathVariable String id) {
-        List<IdentityZone> result = filterForCurrentZone(Arrays.asList(zoneDao.retrieve(id)));
+        List<IdentityZone> result = filterForCurrentZone(Collections.singletonList(zoneDao.retrieveIgnoreActiveFlag(id)));
         if (result.size() == 0) {
             throw new ZoneDoesNotExistsException("Zone does not exist or is not accessible.");
         }
@@ -124,12 +123,10 @@ public class IdentityZoneEndpoints implements ApplicationEventPublisherAware {
         if (identityZone.getConfig() != null && identityZone.getConfig().getSamlConfig() != null) {
             identityZone.getConfig().getSamlConfig().setPrivateKeyPassword(null);
             identityZone.getConfig().getSamlConfig().setPrivateKey(null);
-            identityZone.getConfig().getSamlConfig().getKeys().entrySet().forEach(
-                entry -> {
-                    entry.getValue().setPassphrase(null);
-                    entry.getValue().setKey(null);
-                }
-            );
+            identityZone.getConfig().getSamlConfig().getKeys().forEach((key, value) -> {
+                value.setPassphrase(null);
+                value.setKey(null);
+            });
         }
         return identityZone;
     }
@@ -272,7 +269,7 @@ public class IdentityZoneEndpoints implements ApplicationEventPublisherAware {
             }
 
             // make sure it exists
-            IdentityZone existingZone = zoneDao.retrieve(id);
+            IdentityZone existingZone = zoneDao.retrieveIgnoreActiveFlag(id);
             restoreSecretProperties(existingZone, body);
             //validator require id to be present
             body.setId(id);
@@ -331,11 +328,11 @@ public class IdentityZoneEndpoints implements ApplicationEventPublisherAware {
         try {
             logger.debug("Zone - deleting id[" + id + "]");
             // make sure it exists
-            IdentityZone zone = zoneDao.retrieve(id);
+            IdentityZone zone = zoneDao.retrieveIgnoreActiveFlag(id);
             // ignore the id in the body, the id in the path is the only one that matters
             IdentityZoneHolder.set(zone);
             if (publisher != null && zone != null) {
-                publisher.publishEvent(new EntityDeletedEvent<>(zone, SecurityContextHolder.getContext().getAuthentication()));
+                publisher.publishEvent(new EntityDeletedEvent<>(zone, SecurityContextHolder.getContext().getAuthentication(), IdentityZoneHolder.getCurrentZoneId()));
                 logger.debug("Zone - deleted id[" + zone.getId() + "]");
                 return new ResponseEntity<>(removeKeys(zone), OK);
             } else {

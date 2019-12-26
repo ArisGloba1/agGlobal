@@ -32,7 +32,7 @@ public class JdbcSamlServiceProviderProvisioningTest extends JdbcTestBase {
     private Authentication authentication = mock(Authentication.class);
 
     @Before
-    public void createDatasource() throws Exception {
+    public void createDatasource() {
         db = new JdbcSamlServiceProviderProvisioning(jdbcTemplate);
         cleanUp();
     }
@@ -47,7 +47,7 @@ public class JdbcSamlServiceProviderProvisioningTest extends JdbcTestBase {
     public void testRetrieveActive() {
         IdentityZoneHolder.set(IdentityZone.getUaa());
         assertEquals(0 , db.retrieveActive(IdentityZoneHolder.get().getId()).size());
-        String zoneId = IdentityZone.getUaa().getId();
+        String zoneId = IdentityZone.getUaaZoneId();
         SamlServiceProvider sp = createSamlServiceProvider(zoneId);
         SamlServiceProvider createdSp = db.create(sp, sp.getIdentityZoneId());
         assertEquals(1 , db.retrieveActive(IdentityZoneHolder.get().getId()).size());
@@ -56,9 +56,9 @@ public class JdbcSamlServiceProviderProvisioningTest extends JdbcTestBase {
     }
 
     @Test
-    public void testCreateAndUpdateSamlServiceProviderInDefaultZone() throws Exception {
+    public void testCreateAndUpdateSamlServiceProviderInDefaultZone() {
         IdentityZoneHolder.set(IdentityZone.getUaa());
-        String zoneId = IdentityZone.getUaa().getId();
+        String zoneId = IdentityZone.getUaaZoneId();
 
         SamlServiceProvider sp = createSamlServiceProvider(zoneId);
 
@@ -105,7 +105,7 @@ public class JdbcSamlServiceProviderProvisioningTest extends JdbcTestBase {
     }
 
     @Test
-    public void testCreateSamlServiceProviderInOtherZone() throws Exception {
+    public void testCreateSamlServiceProviderInOtherZone() {
         IdentityZone zone = MultitenancyFixture.identityZone(UUID.randomUUID().toString(), "myzone");
         IdentityZoneHolder.set(zone);
 
@@ -125,7 +125,7 @@ public class JdbcSamlServiceProviderProvisioningTest extends JdbcTestBase {
     }
 
     @Test(expected = EmptyResultDataAccessException.class)
-    public void testGetSamlServiceProviderForWrongZone() throws Exception {
+    public void testGetSamlServiceProviderForWrongZone() {
         IdentityZone zone = MultitenancyFixture.identityZone(UUID.randomUUID().toString(), "myzone");
         IdentityZoneHolder.set(zone);
 
@@ -138,7 +138,7 @@ public class JdbcSamlServiceProviderProvisioningTest extends JdbcTestBase {
     }
 
     @Test(expected = EmptyResultDataAccessException.class)
-    public void testUpdateSamlServiceProviderInWrongZone() throws Exception {
+    public void testUpdateSamlServiceProviderInWrongZone() {
         IdentityZone zone = MultitenancyFixture.identityZone(UUID.randomUUID().toString(), "myzone");
         IdentityZoneHolder.set(zone);
 
@@ -170,16 +170,16 @@ public class JdbcSamlServiceProviderProvisioningTest extends JdbcTestBase {
     }
 
     @Test(expected = SamlSpAlreadyExistsException.class)
-    public void testCreateSamlServiceProviderWithSameEntityIdInDefaultZone() throws Exception {
+    public void testCreateSamlServiceProviderWithSameEntityIdInDefaultZone() {
         IdentityZoneHolder.set(IdentityZone.getUaa());
-        String zoneId = IdentityZone.getUaa().getId();
+        String zoneId = IdentityZone.getUaaZoneId();
         SamlServiceProvider sp = createSamlServiceProvider(zoneId);
         db.create(sp, sp.getIdentityZoneId());
         db.create(sp, sp.getIdentityZoneId());
     }
 
     @Test(expected = SamlSpAlreadyExistsException.class)
-    public void testCreateSamlServiceProviderWithSameEntityIdInOtherZone() throws Exception {
+    public void testCreateSamlServiceProviderWithSameEntityIdInOtherZone() {
         IdentityZone zone = MultitenancyFixture.identityZone(UUID.randomUUID().toString(), "myzone");
         IdentityZoneHolder.set(zone);
         SamlServiceProvider sp = createSamlServiceProvider(zone.getId());
@@ -188,9 +188,9 @@ public class JdbcSamlServiceProviderProvisioningTest extends JdbcTestBase {
     }
 
     @Test
-    public void testCreateSamlServiceProviderWithSameEntityIdInDifferentZones() throws Exception {
+    public void testCreateSamlServiceProviderWithSameEntityIdInDifferentZones() {
         IdentityZoneHolder.set(IdentityZone.getUaa());
-        String zoneId = IdentityZone.getUaa().getId();
+        String zoneId = IdentityZone.getUaaZoneId();
         SamlServiceProvider sp = createSamlServiceProvider(zoneId);
         db.create(sp, sp.getIdentityZoneId());
 
@@ -204,7 +204,7 @@ public class JdbcSamlServiceProviderProvisioningTest extends JdbcTestBase {
     @Test
     public void testDeleteSamlServiceProvidersInUaaZone() {
         IdentityZoneHolder.set(IdentityZone.getUaa());
-        String zoneId = IdentityZone.getUaa().getId();
+        String zoneId = IdentityZone.getUaaZoneId();
 
         SamlServiceProvider sp = createSamlServiceProvider(zoneId);
         SamlServiceProvider createdSp = db.create(sp, sp.getIdentityZoneId());
@@ -212,7 +212,7 @@ public class JdbcSamlServiceProviderProvisioningTest extends JdbcTestBase {
         assertNotNull(createdSp);
         assertThat(jdbcTemplate.queryForObject("select count(*) from service_provider where identity_zone_id=?",
                 new Object[] { IdentityZoneHolder.get().getId() }, Integer.class), is(1));
-        db.onApplicationEvent(new EntityDeletedEvent<>(createdSp, authentication));
+        db.onApplicationEvent(new EntityDeletedEvent<>(createdSp, authentication, IdentityZoneHolder.getCurrentZoneId()));
         assertThat(jdbcTemplate.queryForObject("select count(*) from service_provider where identity_zone_id=?",
                 new Object[] { IdentityZoneHolder.get().getId() }, Integer.class), is(0));
     }
@@ -229,7 +229,7 @@ public class JdbcSamlServiceProviderProvisioningTest extends JdbcTestBase {
         assertNotNull(createdSp);
         assertThat(jdbcTemplate.queryForObject("select count(*) from service_provider where identity_zone_id=?",
                 new Object[] { IdentityZoneHolder.get().getId() }, Integer.class), is(1));
-        db.onApplicationEvent(new EntityDeletedEvent<>(createdSp, authentication));
+        db.onApplicationEvent(new EntityDeletedEvent<>(createdSp, authentication, IdentityZoneHolder.getCurrentZoneId()));
         assertThat(jdbcTemplate.queryForObject("select count(*) from identity_provider where identity_zone_id=?",
                 new Object[] { IdentityZoneHolder.get().getId() }, Integer.class), is(0));
     }

@@ -53,7 +53,7 @@ public class JdbcUnsuccessfulLoginCountingAuditServiceTests extends JdbcTestBase
     private JdbcTemplate template;
 
     @Before
-    public void createService() throws Exception {
+    public void createService() {
         template = spy(jdbcTemplate);
         auditService = new JdbcUnsuccessfulLoginCountingAuditService(template);
         jdbcTemplate.execute("DELETE FROM sec_audit WHERE principal_id='1' or principal_id='clientA' or principal_id='clientB'");
@@ -73,7 +73,7 @@ public class JdbcUnsuccessfulLoginCountingAuditServiceTests extends JdbcTestBase
     }
 
     @Test
-    public void userAuthenticationFailureDeletesOldData() throws Exception {
+    public void userAuthenticationFailureDeletesOldData() {
         long now = System.currentTimeMillis();
         auditService.log(getAuditEvent(UserAuthenticationFailure, "1", "joe"), getAuditEvent(UserAuthenticationFailure, "1", "joe").getIdentityZoneId());
         assertThat(jdbcTemplate.queryForObject("select count(*) from sec_audit where principal_id='1'", Integer.class), is(1));
@@ -85,7 +85,7 @@ public class JdbcUnsuccessfulLoginCountingAuditServiceTests extends JdbcTestBase
     }
 
     @Test
-    public void delete_happens_single_thread_on_intervals() throws Exception {
+    public void delete_happens_single_thread_on_intervals() {
         long now = System.currentTimeMillis();
         auditService.log(getAuditEvent(UserAuthenticationFailure, "1", "joe"), getAuditEvent(UserAuthenticationFailure, "1", "joe").getIdentityZoneId());
         assertThat(jdbcTemplate.queryForObject("select count(*) from sec_audit where principal_id='1'", Integer.class), is(1));
@@ -101,7 +101,7 @@ public class JdbcUnsuccessfulLoginCountingAuditServiceTests extends JdbcTestBase
     }
 
     @Test
-    public void periodic_delete_works() throws Exception {
+    public void periodic_delete_works() {
         for (int i=0; i<5; i++) {
             auditService.periodicDelete();
         }
@@ -121,7 +121,7 @@ public class JdbcUnsuccessfulLoginCountingAuditServiceTests extends JdbcTestBase
     }
 
     @Test
-    public void userAuthenticationSuccessResetsData() throws Exception {
+    public void userAuthenticationSuccessResetsData() {
         auditService.log(getAuditEvent(UserAuthenticationFailure, "1", "joe"), getAuditEvent(UserAuthenticationFailure, "1", "joe").getIdentityZoneId());
         assertThat(jdbcTemplate.queryForObject("select count(*) from sec_audit where principal_id='1'", Integer.class), is(1));
         auditService.log(getAuditEvent(UserAuthenticationSuccess, "1", "joe"), getAuditEvent(UserAuthenticationSuccess, "1", "joe").getIdentityZoneId());
@@ -129,7 +129,7 @@ public class JdbcUnsuccessfulLoginCountingAuditServiceTests extends JdbcTestBase
     }
 
     @Test
-    public void userPasswordChangeSuccessResetsData() throws Exception {
+    public void userPasswordChangeSuccessResetsData() {
         auditService.log(getAuditEvent(UserAuthenticationFailure, "1", "joe"), getAuditEvent(UserAuthenticationFailure, "1", "joe").getIdentityZoneId());
         assertThat(jdbcTemplate.queryForObject("select count(*) from sec_audit where principal_id='1'", Integer.class), is(1));
         auditService.log(getAuditEvent(PasswordChangeSuccess, "1", "joe"), getAuditEvent(PasswordChangeSuccess, "1", "joe").getIdentityZoneId());
@@ -157,7 +157,7 @@ public class JdbcUnsuccessfulLoginCountingAuditServiceTests extends JdbcTestBase
     @Test
     public void mfaFailedEventsAreLogged() {
         String principalId = "1";
-        AuditEvent mfaFailureEvent = new AuditEvent(MfaAuthenticationFailure, principalId, authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaa().getId(), null, null);
+        AuditEvent mfaFailureEvent = new AuditEvent(MfaAuthenticationFailure, principalId, authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaaZoneId(), null, null);
         auditService.log(mfaFailureEvent, mfaFailureEvent.getIdentityZoneId());
 
         assertThat(auditService.find(principalId, 0, mfaFailureEvent.getIdentityZoneId()), is(hasSize(1)));
@@ -165,23 +165,23 @@ public class JdbcUnsuccessfulLoginCountingAuditServiceTests extends JdbcTestBase
 
     @Test
     public void mfaAuthenticationSuccessResetsData() {
-        AuditEvent mfaFailureEvent = new AuditEvent(MfaAuthenticationFailure, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaa().getId(), null, null);
+        AuditEvent mfaFailureEvent = new AuditEvent(MfaAuthenticationFailure, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaaZoneId(), null, null);
         auditService.log(mfaFailureEvent, mfaFailureEvent.getIdentityZoneId());
 
-        AuditEvent mfaSuccessEvent = new AuditEvent(MfaAuthenticationSuccess, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaa().getId(), null, null);
+        AuditEvent mfaSuccessEvent = new AuditEvent(MfaAuthenticationSuccess, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaaZoneId(), null, null);
         auditService.log(mfaSuccessEvent, mfaSuccessEvent.getIdentityZoneId());
         assertThat(jdbcTemplate.queryForObject("select count(*) from sec_audit where principal_id='1'", Integer.class), is(0));
     }
 
     @Test
     public void mfaAuthenticationSuccessResetsOnlyMfaAuthenticationFailures() {
-        AuditEvent mfaFailureEvent = new AuditEvent(MfaAuthenticationFailure, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaa().getId(), null, null);
+        AuditEvent mfaFailureEvent = new AuditEvent(MfaAuthenticationFailure, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaaZoneId(), null, null);
         auditService.log(mfaFailureEvent, mfaFailureEvent.getIdentityZoneId());
 
-        AuditEvent loginFailureEvent = new AuditEvent(UserAuthenticationFailure, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaa().getId(), null, null);
+        AuditEvent loginFailureEvent = new AuditEvent(UserAuthenticationFailure, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaaZoneId(), null, null);
         auditService.log(loginFailureEvent, loginFailureEvent.getIdentityZoneId());
 
-        AuditEvent mfaSuccessEvent = new AuditEvent(MfaAuthenticationSuccess, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaa().getId(), null, null);
+        AuditEvent mfaSuccessEvent = new AuditEvent(MfaAuthenticationSuccess, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaaZoneId(), null, null);
         auditService.log(mfaSuccessEvent, mfaSuccessEvent.getIdentityZoneId());
         assertThat(jdbcTemplate.queryForObject("select count(*) from sec_audit where principal_id='1'", Integer.class), is(1));
     }
@@ -192,27 +192,27 @@ public class JdbcUnsuccessfulLoginCountingAuditServiceTests extends JdbcTestBase
         EnumSet<AuditEventType> complementOfUserAuthenticationSuccess = EnumSet.complementOf(userAuthenticationSuccess);
 
         for (AuditEventType ofUserAuthenticationSuccess : complementOfUserAuthenticationSuccess) {
-            AuditEvent auditEvent = new AuditEvent(ofUserAuthenticationSuccess, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaa().getId(), null, null);
+            AuditEvent auditEvent = new AuditEvent(ofUserAuthenticationSuccess, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaaZoneId(), null, null);
             auditService.log(auditEvent, "some zone");
         }
     }
 
     @Test
     public void userUnlockShouldResetBothUserandMfaAuthentication() {
-        AuditEvent mfaFailureEvent = new AuditEvent(MfaAuthenticationFailure, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaa().getId(), null, null);
+        AuditEvent mfaFailureEvent = new AuditEvent(MfaAuthenticationFailure, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaaZoneId(), null, null);
         auditService.log(mfaFailureEvent, mfaFailureEvent.getIdentityZoneId());
 
-        AuditEvent loginFailureEvent = new AuditEvent(UserAuthenticationFailure, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaa().getId(), null, null);
+        AuditEvent loginFailureEvent = new AuditEvent(UserAuthenticationFailure, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaaZoneId(), null, null);
         auditService.log(loginFailureEvent, loginFailureEvent.getIdentityZoneId());
 
-        AuditEvent unlockEvent = new AuditEvent(UserAccountUnlockedEvent, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaa().getId(), null, null);
+        AuditEvent unlockEvent = new AuditEvent(UserAccountUnlockedEvent, "1", authDetails, "joe", System.currentTimeMillis(), IdentityZone.getUaaZoneId(), null, null);
         auditService.log(unlockEvent, unlockEvent.getIdentityZoneId());
 
         assertThat(auditService.find("1", 0, mfaFailureEvent.getIdentityZoneId()), is(empty()));
     }
 
     private AuditEvent getAuditEvent(AuditEventType type, String principal, String data) {
-        return new AuditEvent(type, principal, authDetails, data, System.currentTimeMillis(), IdentityZone.getUaa().getId(), null, null);
+        return new AuditEvent(type, principal, authDetails, data, System.currentTimeMillis(), IdentityZone.getUaaZoneId(), null, null);
     }
 
 }

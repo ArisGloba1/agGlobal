@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.map.HashedMap;
 import org.cloudfoundry.identity.uaa.approval.Approval;
 import org.cloudfoundry.identity.uaa.approval.Approval.ApprovalStatus;
 import org.cloudfoundry.identity.uaa.approval.ApprovalService;
@@ -33,6 +32,7 @@ import org.cloudfoundry.identity.uaa.util.TimeService;
 import org.cloudfoundry.identity.uaa.util.TokenValidation;
 import org.cloudfoundry.identity.uaa.util.UaaTokenUtils;
 import org.cloudfoundry.identity.uaa.zone.*;
+import org.cloudfoundry.identity.uaa.zone.beans.IdentityZoneManagerImpl;
 import org.junit.*;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
@@ -52,6 +52,7 @@ import org.springframework.security.oauth2.provider.ClientDetails;
 import org.springframework.security.oauth2.provider.OAuth2Authentication;
 import org.springframework.security.oauth2.provider.TokenRequest;
 import org.springframework.security.oauth2.provider.client.BaseClientDetails;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
@@ -61,12 +62,7 @@ import static java.util.Collections.*;
 import static org.cloudfoundry.identity.uaa.oauth.TokenTestSupport.*;
 import static org.cloudfoundry.identity.uaa.oauth.client.ClientConstants.REQUIRED_USER_GROUPS;
 import static org.cloudfoundry.identity.uaa.oauth.client.ClientDetailsModification.SECRET;
-import static org.cloudfoundry.identity.uaa.oauth.token.TokenConstants.GRANT_TYPE_AUTHORIZATION_CODE;
-import static org.cloudfoundry.identity.uaa.oauth.token.TokenConstants.GRANT_TYPE_CLIENT_CREDENTIALS;
-import static org.cloudfoundry.identity.uaa.oauth.token.TokenConstants.GRANT_TYPE_IMPLICIT;
-import static org.cloudfoundry.identity.uaa.oauth.token.TokenConstants.GRANT_TYPE_PASSWORD;
-import static org.cloudfoundry.identity.uaa.oauth.token.TokenConstants.GRANT_TYPE_REFRESH_TOKEN;
-import static org.cloudfoundry.identity.uaa.oauth.token.TokenConstants.REQUEST_TOKEN_FORMAT;
+import static org.cloudfoundry.identity.uaa.oauth.token.TokenConstants.*;
 import static org.cloudfoundry.identity.uaa.oauth.token.TokenConstants.TokenFormat.JWT;
 import static org.cloudfoundry.identity.uaa.oauth.token.TokenConstants.TokenFormat.OPAQUE;
 import static org.cloudfoundry.identity.uaa.oauth.token.matchers.OAuth2AccessTokenMatchers.*;
@@ -77,8 +73,8 @@ import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.*;
 import static org.hamcrest.Matchers.startsWith;
+import static org.hamcrest.Matchers.*;
 import static org.hamcrest.core.AllOf.allOf;
 import static org.hamcrest.number.OrderingComparison.greaterThan;
 import static org.hamcrest.number.OrderingComparison.lessThanOrEqualTo;
@@ -86,7 +82,6 @@ import static org.hamcrest.text.IsEmptyString.isEmptyString;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.*;
-import static org.springframework.security.oauth2.common.util.OAuth2Utils.RESPONSE_TYPE;
 
 @RunWith(Parameterized.class)
 public class DeprecatedUaaTokenServicesTests {
@@ -95,7 +90,6 @@ public class DeprecatedUaaTokenServicesTests {
 
     private TestTokenEnhancer tokenEnhancer;
 
-    private Set<String> thousandScopes;
     private CompositeToken persistToken;
     private Date expiration;
 
@@ -122,7 +116,7 @@ public class DeprecatedUaaTokenServicesTests {
     public void setUp() throws Exception {
         tokenSupport = new TokenTestSupport(tokenEnhancer);
         keyInfoService = new KeyInfoService("https://uaa.url");
-        thousandScopes = new HashSet<>();
+        Set<String> thousandScopes = new HashSet<>();
         for (int i = 0; i < 1000; i++) {
             thousandScopes.add(String.valueOf(i));
         }
@@ -213,8 +207,8 @@ public class DeprecatedUaaTokenServicesTests {
         BaseClientDetails clientDetails = new BaseClientDetails();
         clientDetails.setScope(Sets.newHashSet("openid"));
 
-        ClientServicesExtension clientServicesExtension = mock(ClientServicesExtension.class);
-        when(clientServicesExtension.loadClientByClientId(eq(TokenTestSupport.CLIENT_ID)))
+        MultitenantClientServices mockMultitenantClientServices = mock(MultitenantClientServices.class);
+        when(mockMultitenantClientServices.loadClientByClientId(eq(TokenTestSupport.CLIENT_ID)))
           .thenReturn(clientDetails);
 
         TokenValidityResolver tokenValidityResolver = mock(TokenValidityResolver.class);
@@ -254,7 +248,7 @@ public class DeprecatedUaaTokenServicesTests {
         UaaTokenServices uaaTokenServices = new UaaTokenServices(
           idTokenCreator,
           mock(TokenEndpointBuilder.class),
-          clientServicesExtension,
+          mockMultitenantClientServices,
           mock(RevocableTokenProvisioning.class),
           tokenValidationService,
           mock(RefreshTokenCreator.class),
@@ -278,9 +272,7 @@ public class DeprecatedUaaTokenServicesTests {
         when(userDatabase.getUserInfo(userId)).thenReturn(userInfo);
 
         String refreshToken = getOAuth2AccessToken().getRefreshToken().getValue();
-        uaaTokenServices.refreshAccessToken(refreshToken, getRefreshTokenRequest(new HashMap<String, String>() {{
-            put(RESPONSE_TYPE, "id_token");
-        }}));
+        uaaTokenServices.refreshAccessToken(refreshToken, getRefreshTokenRequest());
 
         verify(idTokenCreator).create(eq(TokenTestSupport.CLIENT_ID), eq(userId), userAuthenticationDataArgumentCaptor.capture());
         UserAuthenticationData userData = userAuthenticationDataArgumentCaptor.getValue();
@@ -329,11 +321,8 @@ public class DeprecatedUaaTokenServicesTests {
     }
 
     @Test
-    public void is_opaque_token_required() {
-        tokenSupport.defaultClient.setAutoApproveScopes(singleton("true"));
+    public void isOpaqueTokenRequired() {
         AuthorizationRequest authorizationRequest = new AuthorizationRequest(CLIENT_ID, tokenSupport.requestedAuthScopes);
-        authorizationRequest.setResponseTypes(new HashSet(Arrays.asList(CompositeToken.ID_TOKEN, "token")));
-        authorizationRequest.setResourceIds(new HashSet<>(tokenSupport.resourceIds));
         Map<String, String> azParameters = new HashMap<>(authorizationRequest.getRequestParameters());
         azParameters.put(GRANT_TYPE, TokenConstants.GRANT_TYPE_USER_TOKEN);
         authorizationRequest.setRequestParameters(azParameters);
@@ -517,6 +506,7 @@ public class DeprecatedUaaTokenServicesTests {
 
         OAuth2Authentication authentication = new OAuth2Authentication(authorizationRequest.createOAuth2Request(), null);
 
+        useIZMIforAccessToken(tokenServices);
         OAuth2AccessToken accessToken = tokenServices.createAccessToken(authentication);
 
         this.assertCommonClientAccessTokenProperties(accessToken);
@@ -547,7 +537,7 @@ public class DeprecatedUaaTokenServicesTests {
                 .setScope(OPENID)
                 .setExpiresAt(new Date())
                 .setStatus(ApprovalStatus.APPROVED);
-        tokenSupport.approvalStore.addApproval(approval, IdentityZone.getUaa().getId());
+        tokenSupport.approvalStore.addApproval(approval, IdentityZone.getUaaZoneId());
 
         OAuth2AccessToken accessToken = tokenServices.createAccessToken(authentication);
 
@@ -618,7 +608,7 @@ public class DeprecatedUaaTokenServicesTests {
     @Test
     public void test_missing_required_user_groups() {
 
-        tokenSupport.defaultClient.addAdditionalInformation(REQUIRED_USER_GROUPS, Arrays.asList("uaa.admin"));
+        tokenSupport.defaultClient.addAdditionalInformation(REQUIRED_USER_GROUPS, singletonList("uaa.admin"));
         AuthorizationRequest authorizationRequest = new AuthorizationRequest(CLIENT_ID, tokenSupport.requestedAuthScopes);
         authorizationRequest.setResourceIds(new HashSet<>(tokenSupport.resourceIds));
         Map<String, String> azParameters = new HashMap<>(authorizationRequest.getRequestParameters());
@@ -755,7 +745,7 @@ public class DeprecatedUaaTokenServicesTests {
         Map<String, String> refreshAzParameters = new HashMap<>(refreshAuthorizationRequest.getRequestParameters());
         refreshAzParameters.put(GRANT_TYPE, GRANT_TYPE_REFRESH_TOKEN);
         refreshAuthorizationRequest.setRequestParameters(refreshAzParameters);
-
+        useIZMIforAccessToken(tokenServices);
         OAuth2AccessToken refreshedAccessToken = tokenServices.refreshAccessToken(accessToken.getRefreshToken().getValue(), tokenSupport.requestFactory.createTokenRequest(refreshAuthorizationRequest, "refresh_token"));
         assertEquals(refreshedAccessToken.getRefreshToken().getValue(), accessToken.getRefreshToken().getValue());
 
@@ -938,7 +928,7 @@ public class DeprecatedUaaTokenServicesTests {
     @Test(expected = InvalidTokenException.class)
     public void testCreateAccessTokenRefreshGrantNoScopesAutoApprovedIncompleteApprovals() {
         BaseClientDetails clientDetails = cloneClient(tokenSupport.defaultClient);
-        clientDetails.setAutoApproveScopes(Arrays.asList());
+        clientDetails.setAutoApproveScopes(emptyList());
         tokenSupport.clientDetailsService.setClientDetailsStore(
           IdentityZoneHolder.get().getId(),
           Collections.singletonMap(CLIENT_ID, clientDetails)
@@ -1073,7 +1063,7 @@ public class DeprecatedUaaTokenServicesTests {
 
     @Test
     public void create_id_token_with_roles_scope() {
-        Jwt idTokenJwt = getIdToken(Arrays.asList(OPENID));
+        Jwt idTokenJwt = getIdToken(singletonList(OPENID));
         assertTrue(idTokenJwt.getClaims().contains("\"amr\":[\"ext\",\"rba\",\"mfa\"]"));
     }
 
@@ -1091,7 +1081,7 @@ public class DeprecatedUaaTokenServicesTests {
 
     @Test
     public void create_id_token_without_roles_scope() {
-        Jwt idTokenJwt = getIdToken(Arrays.asList(OPENID));
+        Jwt idTokenJwt = getIdToken(singletonList(OPENID));
         assertFalse(idTokenJwt.getClaims().contains("\"roles\""));
     }
 
@@ -1105,7 +1095,7 @@ public class DeprecatedUaaTokenServicesTests {
 
     @Test
     public void create_id_token_without_profile_scope() {
-        Jwt idTokenJwt = getIdToken(Arrays.asList(OPENID));
+        Jwt idTokenJwt = getIdToken(singletonList(OPENID));
         assertFalse(idTokenJwt.getClaims().contains("\"given_name\":"));
         assertFalse(idTokenJwt.getClaims().contains("\"family_name\":"));
         assertFalse(idTokenJwt.getClaims().contains("\"phone_number\":"));
@@ -1113,7 +1103,7 @@ public class DeprecatedUaaTokenServicesTests {
 
     @Test
     public void create_id_token_with_last_logon_time_claim() {
-        Jwt idTokenJwt = getIdToken(Arrays.asList(OPENID));
+        Jwt idTokenJwt = getIdToken(singletonList(OPENID));
         assertTrue(idTokenJwt.getClaims().contains("\"previous_logon_time\":12365"));
     }
 
@@ -1149,7 +1139,7 @@ public class DeprecatedUaaTokenServicesTests {
             IdentityZoneConfiguration.class
           )
         );
-        tokenSupport.copyClients(IdentityZone.getUaa().getId(), identityZone.getId());
+        tokenSupport.copyClients(IdentityZone.getUaaZoneId(), identityZone.getId());
         IdentityZoneHolder.set(identityZone);
 
 
@@ -1161,6 +1151,8 @@ public class DeprecatedUaaTokenServicesTests {
         Authentication userAuthentication = tokenSupport.defaultUserAuthentication;
 
         OAuth2Authentication authentication = new OAuth2Authentication(authorizationRequest.createOAuth2Request(), userAuthentication);
+        useIZMIforAccessToken(tokenServices);
+        useIZMIforRefreshToken(tokenServices);
         OAuth2AccessToken accessToken = tokenServices.createAccessToken(authentication);
 
         this.assertCommonUserAccessTokenProperties(accessToken, CLIENT_ID);
@@ -1616,7 +1608,7 @@ public class DeprecatedUaaTokenServicesTests {
         OAuth2AccessToken accessToken = tokenServices.createAccessToken(authentication);
 
 
-        expectedException.expectMessage("The token does not bear a scope claim.");
+        expectedException.expectMessage("The token does not bear a \"scope\" claim.");
         tokenServices.readAccessToken(accessToken.getRefreshToken().getValue());
     }
 
@@ -1682,10 +1674,9 @@ public class DeprecatedUaaTokenServicesTests {
     }
 
     @Test
-    public void testLoad_Opaque_AuthenticationForAUser() {
+    public void load_Opaque_AuthenticationForAUser() {
         tokenSupport.defaultClient.setAutoApproveScopes(singleton("true"));
         AuthorizationRequest authorizationRequest = new AuthorizationRequest(CLIENT_ID, tokenSupport.requestedAuthScopes);
-        authorizationRequest.setResponseTypes(new HashSet(Arrays.asList(CompositeToken.ID_TOKEN, "token")));
         authorizationRequest.setResourceIds(new HashSet<>(tokenSupport.resourceIds));
         Map<String, String> azParameters = new HashMap<>(authorizationRequest.getRequestParameters());
         azParameters.put(GRANT_TYPE, GRANT_TYPE_AUTHORIZATION_CODE);
@@ -1695,7 +1686,6 @@ public class DeprecatedUaaTokenServicesTests {
 
         OAuth2Authentication authentication = new OAuth2Authentication(authorizationRequest.createOAuth2Request(), userAuthentication);
         OAuth2AccessToken accessToken = tokenServices.createAccessToken(authentication);
-        assertNotNull(accessToken);
         assertTrue("Token should be composite token", accessToken instanceof CompositeToken);
         CompositeToken composite = (CompositeToken) accessToken;
         assertThat("id_token should be JWT, thus longer than 36 characters", composite.getIdTokenValue().length(), greaterThan(36));
@@ -1704,12 +1694,11 @@ public class DeprecatedUaaTokenServicesTests {
 
         String accessTokenValue = tokenProvisioning.retrieve(composite.getValue(), IdentityZoneHolder.get().getId()).getValue();
         Map<String, Object> accessTokenClaims = tokenSupport.tokenValidationService.validateToken(accessTokenValue, true).getClaims();
-        assertEquals(true, accessTokenClaims.get(ClaimConstants.REVOCABLE));
+        assertTrue((Boolean) accessTokenClaims.get(ClaimConstants.REVOCABLE));
 
         String refreshTokenValue = tokenProvisioning.retrieve(composite.getRefreshToken().getValue(), IdentityZoneHolder.get().getId()).getValue();
         Map<String, Object> refreshTokenClaims = tokenSupport.tokenValidationService.validateToken(refreshTokenValue, false).getClaims();
-        assertEquals(true, refreshTokenClaims.get(ClaimConstants.REVOCABLE));
-
+        assertTrue((Boolean) refreshTokenClaims.get(ClaimConstants.REVOCABLE));
 
         OAuth2Authentication loadedAuthentication = tokenServices.loadAuthentication(accessToken.getValue());
 
@@ -1724,17 +1713,19 @@ public class DeprecatedUaaTokenServicesTests {
         assertEquals(uaaPrincipal, userAuth.getPrincipal());
         assertTrue(userAuth.isAuthenticated());
 
-        Map<String, String> params = new HashedMap();
+        Map<String, String> params = new HashMap<>();
         params.put("grant_type", "refresh_token");
         params.put("client_id", CLIENT_ID);
+        params.put("token_format", OPAQUE.getStringValue());
         OAuth2AccessToken newAccessToken = tokenServices.refreshAccessToken(composite.getRefreshToken().getValue(), new TokenRequest(params, CLIENT_ID, Collections.EMPTY_SET, "refresh_token"));
+        assertThat("Opaque access token must be shorter than 37 characters", newAccessToken.getValue().length(), lessThanOrEqualTo(36));
+        assertThat("Opaque refresh token must be shorter than 37 characters", newAccessToken.getRefreshToken().getValue().length(), lessThanOrEqualTo(36));
     }
 
     @Test
     public void loadAuthentication_when_given_an_opaque_refreshToken_should_throw_exception() {
         tokenSupport.defaultClient.setAutoApproveScopes(singleton("true"));
         AuthorizationRequest authorizationRequest = new AuthorizationRequest(CLIENT_ID, tokenSupport.requestedAuthScopes);
-        authorizationRequest.setResponseTypes(new HashSet(Arrays.asList("token")));
         authorizationRequest.setResourceIds(new HashSet<>(tokenSupport.resourceIds));
         Map<String, String> azParameters = new HashMap<>(authorizationRequest.getRequestParameters());
         azParameters.put(GRANT_TYPE, GRANT_TYPE_AUTHORIZATION_CODE);
@@ -1750,7 +1741,7 @@ public class DeprecatedUaaTokenServicesTests {
         String refreshTokenValue = tokenProvisioning.retrieve(compositeToken.getRefreshToken().getValue(), IdentityZoneHolder.get().getId()).getValue();
 
         expectedException.expect(InvalidTokenException.class);
-        expectedException.expectMessage("The token does not bear a scope claim.");
+        expectedException.expectMessage("The token does not bear a \"scope\" claim.");
 
         tokenServices.loadAuthentication(refreshTokenValue);
     }
@@ -1760,7 +1751,6 @@ public class DeprecatedUaaTokenServicesTests {
         IdentityZoneHolder.get().getConfig().getTokenPolicy().setJwtRevocable(true);
         tokenSupport.defaultClient.setAutoApproveScopes(singleton("true"));
         AuthorizationRequest authorizationRequest = new AuthorizationRequest(CLIENT_ID, tokenSupport.requestedAuthScopes);
-        authorizationRequest.setResponseTypes(new HashSet(Arrays.asList("token")));
         authorizationRequest.setResourceIds(new HashSet<>(tokenSupport.resourceIds));
         Map<String, String> azParameters = new HashMap<>(authorizationRequest.getRequestParameters());
         azParameters.put(GRANT_TYPE, GRANT_TYPE_AUTHORIZATION_CODE);
@@ -1777,7 +1767,7 @@ public class DeprecatedUaaTokenServicesTests {
         String refreshTokenValue = tokenProvisioning.retrieve(refreshToken.getClaims().get("jti").toString(), IdentityZoneHolder.get().getId()).getValue();
 
         expectedException.expect(InvalidTokenException.class);
-        expectedException.expectMessage("The token does not bear a scope claim.");
+        expectedException.expectMessage("The token does not bear a \"scope\" claim.");
         tokenServices.loadAuthentication(refreshTokenValue);
     }
 
@@ -2171,4 +2161,24 @@ public class DeprecatedUaaTokenServicesTests {
             return JsonUtils.readValue(jwt.getClaims(), Claims.class);
         }
     }
+
+    private static void useIZMIforAccessToken(UaaTokenServices tokenServices) {
+        TokenValidityResolver accessTokenValidityResolver =
+                (TokenValidityResolver) ReflectionTestUtils.getField(tokenServices, "accessTokenValidityResolver");
+        ClientTokenValidity clientTokenValidity =
+                (ClientTokenValidity) ReflectionTestUtils.getField(accessTokenValidityResolver, "clientTokenValidity");
+        ReflectionTestUtils.setField(clientTokenValidity, "identityZoneManager", new IdentityZoneManagerImpl());
+    }
+
+    private static void useIZMIforRefreshToken(UaaTokenServices tokenServices) {
+        RefreshTokenCreator refreshTokenCreator =
+                (RefreshTokenCreator) ReflectionTestUtils.getField(tokenServices, "refreshTokenCreator");
+        TokenValidityResolver refreshTokenValidityResolver =
+                (TokenValidityResolver) ReflectionTestUtils.getField(refreshTokenCreator, "refreshTokenValidityResolver");
+        ClientTokenValidity clientTokenValidity =
+                (ClientTokenValidity) ReflectionTestUtils.getField(refreshTokenValidityResolver, "clientTokenValidity");
+
+        ReflectionTestUtils.setField(clientTokenValidity, "identityZoneManager", new IdentityZoneManagerImpl());
+    }
+
 }

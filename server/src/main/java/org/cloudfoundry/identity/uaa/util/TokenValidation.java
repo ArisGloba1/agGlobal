@@ -12,8 +12,9 @@
  *******************************************************************************/
 package org.cloudfoundry.identity.uaa.util;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import com.google.common.collect.Lists;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.cloudfoundry.identity.uaa.oauth.KeyInfo;
 import org.cloudfoundry.identity.uaa.oauth.KeyInfoService;
 import org.cloudfoundry.identity.uaa.oauth.TokenRevokedException;
@@ -24,7 +25,7 @@ import org.cloudfoundry.identity.uaa.oauth.token.RevocableToken;
 import org.cloudfoundry.identity.uaa.oauth.token.RevocableTokenProvisioning;
 import org.cloudfoundry.identity.uaa.user.UaaUser;
 import org.cloudfoundry.identity.uaa.user.UaaUserDatabase;
-import org.cloudfoundry.identity.uaa.zone.ClientServicesExtension;
+import org.cloudfoundry.identity.uaa.zone.MultitenantClientServices;
 import org.cloudfoundry.identity.uaa.zone.IdentityZoneHolder;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.security.core.GrantedAuthority;
@@ -37,16 +38,9 @@ import org.springframework.security.oauth2.provider.ClientDetails;
 import org.springframework.security.oauth2.provider.NoSuchClientException;
 import org.springframework.util.Assert;
 
+import javax.validation.constraints.NotNull;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -55,21 +49,12 @@ import static java.util.Collections.emptySet;
 import static java.util.Optional.ofNullable;
 import static java.util.stream.Collectors.toList;
 import static org.cloudfoundry.identity.uaa.oauth.client.ClientConstants.REQUIRED_USER_GROUPS;
-import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.AUD;
-import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.CID;
-import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.CLIENT_ID;
-import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.EXP;
-import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.GRANTED_SCOPES;
-import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.ISS;
-import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.JTI;
-import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.REVOCATION_SIGNATURE;
-import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.SCOPE;
-import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.USER_ID;
+import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.*;
 import static org.cloudfoundry.identity.uaa.oauth.token.TokenConstants.REFRESH_TOKEN_SUFFIX;
 import static org.cloudfoundry.identity.uaa.util.UaaTokenUtils.isUserToken;
 
 public abstract class TokenValidation {
-    private static final Log logger = LogFactory.getLog(TokenValidation.class);
+    private static final Logger logger = LoggerFactory.getLogger(TokenValidation.class);
     private final Map<String, Object> claims;
     private final Jwt tokenJwt;
     private final String token;
@@ -94,9 +79,12 @@ public abstract class TokenValidation {
         return idTokenValidation;
     }
 
-    abstract String getClaimName();
+    abstract ScopeClaimKey scopeClaimKey();
 
-    abstract Optional<List<String>> getScopes();
+    @NotNull
+    List<String> requestedScopes() {
+        return readScopesFromClaim(scopeClaimKey());
+    }
 
     private TokenValidation(String token, KeyInfoService keyInfoService) {
         this.token = token;
@@ -115,7 +103,7 @@ public abstract class TokenValidation {
         KeyInfo signingKey = keyInfoService.getKey(kid);
         if (signingKey == null) {
             throw new InvalidTokenException(String.format(
-              "Token header claim [kid] references unknown signing key : [%s]", kid
+                    "Token header claim [kid] references unknown signing key : [%s]", kid
             ));
         }
 
@@ -199,8 +187,6 @@ public abstract class TokenValidation {
                 Assert.notNull(user, "[Assertion failed] - this argument is required; it must not be null");
             } catch (UsernameNotFoundException ex) {
                 throw new InvalidTokenException("Token bears a non-existent user ID: " + userId, ex);
-            } catch (InvalidTokenException ex) {
-                throw ex;
             }
 
             if (user == null) {
@@ -211,58 +197,66 @@ public abstract class TokenValidation {
                 if (authorities == null) {
                     throw new InvalidTokenException("Invalid token (all scopes have been revoked)", null);
                 } else {
-                    List<String> authoritiesValue = authorities.stream().map(GrantedAuthority::getAuthority).collect(toList());
-                    checkScopesWithin(authoritiesValue);
+                    List<String> grantedScopes =
+                            authorities.stream()
+                                    .map(GrantedAuthority::getAuthority).collect(toList());
+
+                    checkRequestedScopesAreGranted(grantedScopes);
                 }
             }
         }
         return this;
     }
 
-    protected TokenValidation checkScopesWithin(String... scopes) {
-        return checkScopesWithin(Arrays.asList(scopes));
+    protected TokenValidation checkRequestedScopesAreGranted(String... grantedScopes) {
+        return checkRequestedScopesAreGranted(Arrays.asList(grantedScopes));
     }
 
-    protected TokenValidation checkScopesWithin(Collection<String> scopes) {
-        Optional<List<String>> scopesGot = getScopes();
-        scopesGot.ifPresent(tokenScopes -> {
-            Set<Pattern> scopePatterns = UaaStringUtils.constructWildcards(scopes);
-            List<String> missingScopes = tokenScopes.stream().filter(s -> !scopePatterns.stream().anyMatch(p -> p.matcher(s).matches())).collect(toList());
-            if (!missingScopes.isEmpty()) {
-                String claimName = getClaimName();
-                String message = String.format("Some required %s are missing: " + missingScopes.stream().collect(Collectors.joining(" ")), claimName);
-                throw new InvalidTokenException(message);
-            }
-        });
+    protected TokenValidation checkRequestedScopesAreGranted(Collection<String> grantedScopes) {
+        List<String> requestedScopes = requestedScopes();
+        Set<Pattern> grantedScopePatterns = UaaStringUtils.constructWildcards(grantedScopes);
+        List<String> missingScopes =
+                requestedScopes.stream().filter(
+                        requestedScope -> grantedScopePatterns.stream()
+                                .noneMatch(grantedScopePattern -> grantedScopePattern.matcher(requestedScope).matches())
+                ).collect(toList());
+        if (!missingScopes.isEmpty()) {
+            String scopeClaimKey = scopeClaimKey().keyName();
+            String message =
+                    String.format("Some required \"%s\" are missing: [%s]",
+                            scopeClaimKey,
+                            String.join(", ", missingScopes));
+            throw new InvalidTokenException(message);
+        }
         return this;
     }
 
 
     public TokenValidation checkClientAndUser(ClientDetails client, UaaUser user) {
         TokenValidation validation =
-          checkClient(
-            cid -> {
-                if (!equals(cid, client.getClientId())) {
-                    throw new InvalidTokenException("Token's client ID does not match expected value: " + client.getClientId());
-                }
-                return client;
-            });
+                checkClient(
+                        cid -> {
+                            if (!equals(cid, client.getClientId())) {
+                                throw new InvalidTokenException("Token's client ID does not match expected value: " + client.getClientId());
+                            }
+                            return client;
+                        });
         if (isUserToken(claims)) {
             return validation
-              .checkUser(uid -> {
-                  if (user == null) {
-                      throw new InvalidTokenException("Unable to validate user, no user found.");
-                  } else {
-                      if (!equals(uid, user.getId())) {
-                          throw new InvalidTokenException("Token does not have expected user ID.");
-                      }
-                      return user;
-                  }
-              })
-              .checkRequiredUserGroups(
-                ofNullable((Collection<String>) client.getAdditionalInformation().get(REQUIRED_USER_GROUPS)).orElse(emptySet()),
-                AuthorityUtils.authorityListToSet(user.getAuthorities())
-              );
+                    .checkUser(uid -> {
+                        if (user == null) {
+                            throw new InvalidTokenException("Unable to validate user, no user found.");
+                        } else {
+                            if (!equals(uid, user.getId())) {
+                                throw new InvalidTokenException("Token does not have expected user ID.");
+                            }
+                            return user;
+                        }
+                    })
+                    .checkRequiredUserGroups(
+                            ofNullable((Collection<String>) client.getAdditionalInformation().get(REQUIRED_USER_GROUPS)).orElse(emptySet()),
+                            AuthorityUtils.authorityListToSet(user.getAuthorities())
+                    );
 
         } else {
             return validation;
@@ -299,19 +293,17 @@ public abstract class TokenValidation {
             if (null == claims.get(USER_ID)) {
                 // for client credentials tokens, we want to validate the client scopes
                 clientScopes = ofNullable(client.getAuthorities())
-                  .map(a -> a.stream()
-                    .map(GrantedAuthority::getAuthority)
-                    .collect(toList()))
-                  .orElse(Collections.emptyList());
+                        .map(a -> a.stream()
+                                .map(GrantedAuthority::getAuthority)
+                                .collect(toList()))
+                        .orElse(Collections.emptyList());
             } else {
                 clientScopes = client.getScope();
             }
 
-            checkScopesWithin(clientScopes);
+            checkRequestedScopesAreGranted(clientScopes);
         } catch (NoSuchClientException ex) {
             throw new InvalidTokenException("The token refers to a non-existent client: " + clientId, ex);
-        } catch (InvalidTokenException ex) {
-            throw ex;
         }
 
         return this;
@@ -361,8 +353,8 @@ public abstract class TokenValidation {
         } else {
             try {
                 audience = ((List<?>) audClaim).stream()
-                  .map(s -> (String) s)
-                  .collect(toList());
+                        .map(s -> (String) s)
+                        .collect(toList());
             } catch (ClassCastException ex) {
                 throw new InvalidTokenException("The token's audience claim is invalid or unparseable.", ex);
             }
@@ -388,7 +380,7 @@ public abstract class TokenValidation {
                 RevocableToken revocableToken = null;
                 try {
                     revocableToken = revocableTokenProvisioning.retrieve(tokenId, IdentityZoneHolder.get().getId());
-                } catch (EmptyResultDataAccessException ex) {
+                } catch (EmptyResultDataAccessException ignored) {
                 }
 
                 if (revocableToken == null) {
@@ -407,29 +399,37 @@ public abstract class TokenValidation {
         return a.equals(b);
     }
 
-    private Optional<List<String>> scopes = null;
+    private List<String> readScopesFromClaim(ScopeClaimKey scopeClaimKey) {
+        String scopeKeyName = scopeClaimKey.keyName();
 
-
-    protected Optional<List<String>> readScopesFromClaim(String claimName) {
-        if (!claims.containsKey(claimName)) {
-            throw new InvalidTokenException(String.format("The token does not bear a %s claim.", claimName), null);
+        if (!claims.containsKey(scopeKeyName)) {
+            String errorMessage = String.format("The token does not bear a \"%s\" claim.", scopeKeyName);
+            logger.error(errorMessage);
+            throw new InvalidTokenException(errorMessage);
         }
 
-        Object scopeClaim = claims.get(claimName);
+        Object scopeClaim = claims.get(scopeKeyName);
         if (scopeClaim == null) {
-            // treat null scope claim the same as empty scope claim
-            scopeClaim = new ArrayList<>();
+            return Lists.newArrayList();
         }
 
-        try {
-            List<String> scopeList = ((List<?>) scopeClaim).stream()
-              .filter(Objects::nonNull)
-              .map(Object::toString)
-              .collect(toList());
-            scopes = Optional.of(scopeList);
-            return scopes;
-        } catch (ClassCastException ex) {
-            throw new InvalidTokenException("The token's scope claim is invalid or unparseable.", ex);
+        InvalidTokenException unparsableClaimException = new InvalidTokenException(
+                String.format(
+                        "The token's \"%s\" claim is invalid or unparseable.",
+                        scopeKeyName
+                )
+        );
+
+        if (!(scopeClaim instanceof List)) {
+            throw unparsableClaimException;
+        }
+
+        List<?> scopes = (List<?>) scopeClaim;
+
+        if(scopes.stream().allMatch(String.class::isInstance)) {
+            return scopes.stream().map(o -> (String) o).collect(toList());
+        } else {
+            throw unparsableClaimException;
         }
     }
 
@@ -454,7 +454,7 @@ public abstract class TokenValidation {
 
     protected abstract void validateJtiValue(String jtiValue);
 
-    public ClientDetails getClientDetails(ClientServicesExtension clientDetailsService) {
+    public ClientDetails getClientDetails(MultitenantClientServices clientDetailsService) {
         String clientId = (String) claims.get(CID);
         try {
             return clientDetailsService.loadClientByClientId(clientId, IdentityZoneHolder.get().getId());
@@ -489,13 +489,8 @@ public abstract class TokenValidation {
         }
 
         @Override
-        String getClaimName() {
-            return SCOPE;
-        }
-
-        @Override
-        Optional<List<String>> getScopes() {
-            return readScopesFromClaim(getClaimName());
+        ScopeClaimKey scopeClaimKey() {
+            return ScopeClaimKey.SCOPE;
         }
     }
 
@@ -512,16 +507,11 @@ public abstract class TokenValidation {
         }
 
         @Override
-        String getClaimName() {
-            if(this.getClaims().containsKey(GRANTED_SCOPES)){
-                return GRANTED_SCOPES;
+        ScopeClaimKey scopeClaimKey() {
+            if (this.getClaims().containsKey(ScopeClaimKey.GRANTED_SCOPES.keyName())) {
+                return ScopeClaimKey.GRANTED_SCOPES;
             }
-            return SCOPE;
-        }
-
-        @Override
-        Optional<List<String>> getScopes() {
-            return readScopesFromClaim(getClaimName());
+            return ScopeClaimKey.SCOPE;
         }
     }
 
@@ -531,11 +521,8 @@ public abstract class TokenValidation {
         }
 
         @Override
-        String getClaimName() { return SCOPE; }
-
-        @Override
-        Optional<List<String>> getScopes() {
-            return readScopesFromClaim(getClaimName());
+        ScopeClaimKey scopeClaimKey() {
+            return ScopeClaimKey.SCOPE;
         }
 
         @Override
@@ -543,6 +530,21 @@ public abstract class TokenValidation {
             if (jtiValue.endsWith(REFRESH_TOKEN_SUFFIX)) {
                 throw new InvalidTokenException("Invalid access token.", null);
             }
+        }
+    }
+
+    enum ScopeClaimKey {
+        SCOPE(ClaimConstants.SCOPE),
+        GRANTED_SCOPES(ClaimConstants.GRANTED_SCOPES);
+
+        private String keyName;
+
+        ScopeClaimKey(String keyName) {
+            this.keyName = keyName;
+        }
+
+        String keyName() {
+            return this.keyName;
         }
     }
 }

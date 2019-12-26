@@ -13,8 +13,9 @@
 
 package org.cloudfoundry.identity.uaa.authentication;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.cloudfoundry.identity.uaa.util.SessionUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.cloudfoundry.identity.uaa.provider.oauth.XOAuthAuthenticationManager;
 import org.cloudfoundry.identity.uaa.provider.oauth.XOAuthCodeToken;
 import org.springframework.security.authentication.*;
@@ -52,7 +53,7 @@ import static org.cloudfoundry.identity.uaa.oauth.token.TokenConstants.GRANT_TYP
  */
 public class BackwardsCompatibleTokenEndpointAuthenticationFilter implements Filter {
 
-    private static final Log logger = LogFactory.getLog(BackwardsCompatibleTokenEndpointAuthenticationFilter.class);
+    private static final Logger logger = LoggerFactory.getLogger(BackwardsCompatibleTokenEndpointAuthenticationFilter.class);
 
     private AuthenticationDetailsSource<HttpServletRequest, ?> authenticationDetailsSource = new WebAuthenticationDetailsSource();
 
@@ -125,7 +126,6 @@ public class BackwardsCompatibleTokenEndpointAuthenticationFilter implements Fil
                 SecurityContextHolder.getContext().setAuthentication(userAuthentication);
                 AuthorizationRequest authorizationRequest = oAuth2RequestFactory.createAuthorizationRequest(map);
 
-                //authorizationRequest.setScope(getScope(request));
                 if (clientAuth.isAuthenticated()) {
                     // Ensure the OAuth2Authentication is authenticated
                     authorizationRequest.setApproved(true);
@@ -168,12 +168,12 @@ public class BackwardsCompatibleTokenEndpointAuthenticationFilter implements Fil
 
     protected void onSuccessfulAuthentication(HttpServletRequest request,
                                               HttpServletResponse response,
-                                              Authentication authResult) throws IOException {
+                                              Authentication authResult) {
     }
 
     protected void onUnsuccessfulAuthentication(HttpServletRequest request,
                                                 HttpServletResponse response,
-                                                AuthenticationException failed) throws IOException {
+                                                AuthenticationException failed) {
         SecurityContextHolder.clearContext();
     }
 
@@ -204,7 +204,7 @@ public class BackwardsCompatibleTokenEndpointAuthenticationFilter implements Fil
 
             if (authResult != null && authResult.isAuthenticated() && authResult instanceof UaaAuthentication) {
                 UaaAuthentication uaaAuthentication = (UaaAuthentication) authResult;
-                if (uaaAuthentication.isRequiresPasswordChange()) {
+                if (SessionUtils.isPasswordChangeRequired(request.getSession())) {
                     throw new PasswordChangeRequiredException(uaaAuthentication, "password change required");
                 }
             }
@@ -241,7 +241,7 @@ public class BackwardsCompatibleTokenEndpointAuthenticationFilter implements Fil
     }
 
     @Override
-    public void init(FilterConfig filterConfig) throws ServletException {
+    public void init(FilterConfig filterConfig) {
     }
 
     @Override

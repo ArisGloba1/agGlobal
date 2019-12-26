@@ -31,7 +31,7 @@ public class JdbcAuditServiceTests extends JdbcTestBase {
     private String authDetails;
 
     @Before
-    public void createService() throws Exception {
+    public void createService() {
         auditService = new JdbcAuditService(jdbcTemplate);
         jdbcTemplate.execute("DELETE FROM sec_audit WHERE principal_id='1' or principal_id='clientA' or principal_id='clientB'");
         authDetails = "1.1.1.1";
@@ -47,7 +47,7 @@ public class JdbcAuditServiceTests extends JdbcTestBase {
         assertEquals("1", events.get(0).getPrincipalId());
         assertEquals("joe", events.get(0).getData());
         assertEquals("1.1.1.1", events.get(0).getOrigin());
-        assertEquals(IdentityZone.getUaa().getId(), events.get(0).getIdentityZoneId());
+        assertEquals(IdentityZone.getUaaZoneId(), events.get(0).getIdentityZoneId());
     }
 
     @Test
@@ -57,11 +57,11 @@ public class JdbcAuditServiceTests extends JdbcTestBase {
         assertEquals(1, events.size());
         assertEquals("clientA", events.get(0).getPrincipalId());
         assertEquals("1.1.1.1", events.get(0).getOrigin());
-        assertEquals(IdentityZone.getUaa().getId(), events.get(0).getIdentityZoneId());
+        assertEquals(IdentityZone.getUaaZoneId(), events.get(0).getIdentityZoneId());
     }
 
     @Test
-    public void findMethodOnlyReturnsEventsWithinRequestedPeriod() throws Exception {
+    public void findMethodOnlyReturnsEventsWithinRequestedPeriod() {
         long now = System.currentTimeMillis();
         auditService.log(getAuditEvent(PrincipalAuthenticationFailure, "clientA"), getAuditEvent(PrincipalAuthenticationFailure, "clientA").getIdentityZoneId());
         // Set the created column to one hour past
@@ -78,7 +78,7 @@ public class JdbcAuditServiceTests extends JdbcTestBase {
     }
 
     private AuditEvent getAuditEvent(AuditEventType type, String principal, String data) {
-        return new AuditEvent(type, principal, authDetails, data, System.currentTimeMillis(), IdentityZone.getUaa().getId(), null, null);
+        return new AuditEvent(type, principal, authDetails, data, System.currentTimeMillis(), IdentityZone.getUaaZoneId(), null, null);
     }
 
 }

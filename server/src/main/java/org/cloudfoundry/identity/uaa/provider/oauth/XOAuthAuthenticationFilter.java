@@ -13,8 +13,8 @@
 package org.cloudfoundry.identity.uaa.provider.oauth;
 
 import org.apache.commons.httpclient.util.URIUtil;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.cloudfoundry.identity.uaa.authentication.UaaAuthenticationDetails;
 import org.cloudfoundry.identity.uaa.login.AccountSavingAuthenticationSuccessHandler;
 import org.springframework.security.core.Authentication;
@@ -30,13 +30,14 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 import static java.util.Optional.ofNullable;
 import static org.springframework.util.StringUtils.hasText;
 
 public class XOAuthAuthenticationFilter implements Filter {
 
-    private static Log logger = LogFactory.getLog(XOAuthAuthenticationFilter.class);
+    private static Logger logger = LoggerFactory.getLogger(XOAuthAuthenticationFilter.class);
 
     private final XOAuthAuthenticationManager xOAuthAuthenticationManager;
     private final AccountSavingAuthenticationSuccessHandler successHandler;
@@ -47,7 +48,7 @@ public class XOAuthAuthenticationFilter implements Filter {
     }
 
     @Override
-    public void init(FilterConfig filterConfig) throws ServletException {
+    public void init(FilterConfig filterConfig) {
     }
 
     @Override
@@ -99,7 +100,7 @@ public class XOAuthAuthenticationFilter implements Filter {
             if(!hasText(message)) {
                 message = ex.getClass().getSimpleName();
             }
-            String errorMessage = URLEncoder.encode("There was an error when authenticating against the external identity provider: " + message, "UTF-8");
+            String errorMessage = URLEncoder.encode("There was an error when authenticating against the external identity provider: " + message, StandardCharsets.UTF_8);
             response.sendRedirect(request.getContextPath() + "/oauth_error?error=" + errorMessage);
             return false;
         }
